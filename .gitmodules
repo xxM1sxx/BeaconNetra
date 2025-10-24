@@ -1,0 +1,6 @@
+[submodule "lib/modbus_atg/ModbusRTU-master"]
+	path = lib/modbus_atg/ModbusRTU-master
+	url = git@github-company:UsageableLibs/ModbusRTU-master.git
+[submodule "lib/ModbusRTU-master"]
+	path = lib/ModbusRTU-master
+	url = git@github-company:UsageableLibs/ModbusRTU-master.git

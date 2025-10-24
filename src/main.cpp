@@ -12,6 +12,7 @@
 #include "gps.h"
 #include "hour_meter_manager.h"
 #include "id_management.h"
+#include "modbus_atg.h"
 #include "rtc.h"
 
 /* DEKLARASI OBJEK YANG DIGUNAKAN TERSIMPAN DI HEAP */
@@ -52,7 +53,9 @@ SemaphoreHandle_t dataReadySemaphore     = NULL;
 
 /* GLOBAL VARIABLES */
 BeaconData_t   data;
-HardwareSerial modbus(1);
+TankData_t     tankData;
+HardwareSerial modbusPort(1);
+ModbusATG      mdbAtg(&modbusPort);
 Setting_t      setting;
 float          scaleAdjusted;
 uint16_t       glitchCounter = 0;
@@ -98,7 +101,11 @@ void setup()
 
     /* RS485 INIT */
     Serial.println("[485] Inisialisasi RS485");
-    modbus.begin(9600, SERIAL_8N1, PIN_RX_RS485, PIN_TX_RS485);
+    if (!mdbAtg.begin(9600, PIN_RX_RS485, PIN_TX_RS485))
+    {
+        ESP_LOGE(ModbusATG::TAG, "modbus failed to be initialized");
+        return;
+    }
 
     xSemaphore = xSemaphoreCreateBinary();
     xSemaphoreGive(xSemaphore);
@@ -266,9 +273,10 @@ static void retrieveGPSData(void *pvParam)
 
 static void sendToRS485(void *pvParam)
 {
+    mdbAtg.readAllRegisters(1, tankData);
     while (1)
     {
-        modbus.printf("%c,%f,%f,%.2f", data.gps.status, data.gps.latitude, data.gps.longitude, data.voltageSupply);
+        // modbus.printf("%c,%f,%f,%.2f", data.gps.status, data.gps.latitude, data.gps.longitude, data.voltageSupply);
 
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
