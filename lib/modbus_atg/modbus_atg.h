@@ -1,12 +1,18 @@
 #pragma once
 
+// #include "../ModbusRTUMaster-1.0.5/src/ModbusRTUMaster.h"
 #include "../ModbusRTU-master/src/ModbusRTUMaster.h"
 #include <Arduino.h>
 #include <esp_err.h>
 
+#define ATG_REQUEST_DURATION (1 * 1000)
+
+class ModbusATG;
+extern ModbusATG mdbAtg;
+
 enum class FuelTankUnitReg_t : uint16_t
 {
-    ID = 1900,
+    ID = 0x1900,
     STATUS,
     OUTPUT_VOLTAGE,
     LEVEL_TANK,
@@ -54,6 +60,7 @@ class ModbusATG
     bool getMaxVoltageLevel(const uint8_t slaveAddr, float &maxVoltageLevel);
     bool setMaxTankVolume(const uint8_t slaveAddr, const float maxTankVolume);
     bool getMaxTankVolume(const uint8_t slaveAddr, float &maxTankVolume);
+    void debugOutput();
 
     static const char *TAG;
 

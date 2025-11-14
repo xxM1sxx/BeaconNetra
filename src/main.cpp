@@ -26,7 +26,7 @@ BLE         *ble;
 static void   dataAcquisition(void *pvParam);
 static void   sendBLEData(void *pvParam);
 static void   retrieveGPSData(void *pvParam);
-static void   sendToRS485(void *pvParam);
+static void   requestATGInfo(void *pvParam);
 static void   countingHourMeter(void *pvParam);
 static void   serialConfig(void *pvParam);
 static void   checkDeepSleepTask(void *param);
@@ -37,12 +37,13 @@ static float  calculateHMOffset(time_t seconds, float offset);
 static time_t calculateHMOffsetSeconds(time_t seconds, float offset);
 static void   wifiTimeoutCallback(TimerHandle_t xTimer);
 void          goingDeepSleepTimerCB(TimerHandle_t xTimer);
+static void   printInfo(const BeaconData_t &data, const Setting_t &setting, const TankData_t &tank);
 
 /* FORWARD DECLARATION UNTUK HANDLER DAN SEMAPHORE RTOS */
 TaskHandle_t      dataAcquisitionHandler = NULL;
 TaskHandle_t      sendBLEDataHandler     = NULL;
 TaskHandle_t      retrieveGPSHandler     = NULL;
-TaskHandle_t      sendToRS485Handler     = NULL;
+TaskHandle_t      requestATGInfoHandler  = NULL;
 TaskHandle_t      countingHMHandler      = NULL;
 TaskHandle_t      settingUARTHandler     = NULL;
 TaskHandle_t      checkSleepHandler      = NULL;
@@ -52,15 +53,14 @@ SemaphoreHandle_t dataReadySemaphore     = NULL;
 // TaskHandle_t RTCDemoHandler = NULL;
 
 /* GLOBAL VARIABLES */
-BeaconData_t   data;
-TankData_t     tankData;
-HardwareSerial modbusPort(1);
-ModbusATG      mdbAtg(&modbusPort);
-Setting_t      setting;
-float          scaleAdjusted;
-uint16_t       glitchCounter = 0;
-SystemState_t  currentState;
-float          hourMeterInHours;
+BeaconData_t  data;
+TankData_t    tankData;
+ModbusATG     mdbAtg(&Serial1);
+Setting_t     setting;
+float         scaleAdjusted;
+uint16_t      glitchCounter = 0;
+SystemState_t currentState;
+float         hourMeterInHours;
 
 void setup()
 {
@@ -136,13 +136,14 @@ void setup()
     esp_sleep_enable_ext0_wakeup(GPIO_NUM_35, 0); // 1 = High, 0 = Low
     esp_sleep_enable_timer_wakeup(DEEP_SLEEP_TIMER_CYCLE_OFF * uS_TO_S_FACTOR);
 
-    xTaskCreatePinnedToCore(dataAcquisition, "Data Acquisition", 4096, NULL, 3, &dataAcquisitionHandler, 1);
     xTaskCreatePinnedToCore(sendBLEData, "Send BLE Data", 2048, NULL, 3, &sendBLEDataHandler, 0);
-    xTaskCreatePinnedToCore(retrieveGPSData, "get GPS Data", 4096, NULL, 4, &retrieveGPSHandler, 1);
     xTaskCreatePinnedToCore(countingHourMeter, "Updating Hour Meter", 8192, NULL, 3, &countingHMHandler, 0);
-    xTaskCreatePinnedToCore(serialConfig, "Updating setting", 4096, NULL, 3, &settingUARTHandler, 1);
+    xTaskCreatePinnedToCore(retrieveGPSData, "get GPS Data", 4096, NULL, 4, &retrieveGPSHandler, 1);
+    xTaskCreatePinnedToCore(dataAcquisition, "Data Acquisition", 4096, NULL, 3, &dataAcquisitionHandler, 1);
+    xTaskCreatePinnedToCore(serialConfig, "Updating setting", 4096, NULL, 5, &settingUARTHandler, 1);
     xTaskCreatePinnedToCore(checkDeepSleepTask, "Check Deep Sleep", 4096, NULL, 1, &checkSleepHandler, 1);
     xTaskCreatePinnedToCore(OTABLEUpdate, "OTA BLE Update", 4096, NULL, 2, &OTABLEUpdateHandler, 1);
+    xTaskCreatePinnedToCore(requestATGInfo, "Request ATG Info", 4096, NULL, 3, &requestATGInfoHandler, 1);
 }
 
 void loop()
@@ -191,23 +192,7 @@ static void dataAcquisition(void *pvParam)
         data.gps.longitude = currentLongitude;
 
         // Print output
-        Serial.printf("============================================\n");
-        Serial.printf("GPS STATUS\t\t\t= %c\n", data.gps.status);
-        Serial.printf("GPS LATITUDE\t\t\t= %f\n", data.gps.latitude);
-        Serial.printf("GPS LONGITUDE\t\t\t= %f\n", data.gps.longitude);
-        Serial.printf("Analog Input\t\t\t= %.2f V\n", data.voltageSupply);
-        Serial.printf("Hour Meter(seconds)\t\t= %ld s\n", data.hourMeter);
-        Serial.printf("Hour Meter + offset(seconds)\t= %ld s\n",
-                      calculateHMOffsetSeconds(data.hourMeter, setting.offsetHM));
-        Serial.printf("Hour Meter(hours)\t\t= %.3f Hrs\n", static_cast<float>(data.hourMeter / 3600.0f));
-        Serial.printf("Hour Meter + offset(hours)\t= %.3f Hrs\n", calculateHMOffset(data.hourMeter, setting.offsetHM));
-        Serial.printf("============================================\n");
-        Serial.printf("[setting] ID\t\t\t: %s\n", setting.ID.c_str());
-        Serial.printf("[setting] threshold HM\t\t: %.2f V\n", setting.thresholdHM);
-        Serial.printf("[setting] offsetAnalogInput\t: %f\n", setting.offsetAnalogInput);
-        Serial.printf("[setting] offsetHM \t\t: %.2f%%\n", setting.offsetHM);
-        // Serial.printf("[Err] Glitch Counter\t\t: %d\n", glitchCounter);
-        Serial.printf("============================================\n");
+        printInfo(data, setting, tankData);
 
         xSemaphoreGive(dataReadySemaphore);
         vTaskDelay(pdMS_TO_TICKS(1000)); // Delay for 1 second
@@ -271,14 +256,23 @@ static void retrieveGPSData(void *pvParam)
     }
 }
 
-static void sendToRS485(void *pvParam)
+static void requestATGInfo(void *pvParam)
 {
-    mdbAtg.readAllRegisters(1, tankData);
+    bool retVal;
+
     while (1)
     {
-        // modbus.printf("%c,%f,%f,%.2f", data.gps.status, data.gps.latitude, data.gps.longitude, data.voltageSupply);
+        retVal = mdbAtg.readAllRegisters(1, tankData);
+        if (!retVal)
+        {
+            ESP_LOGE(ModbusATG::TAG, "Failed to get Raw Voltage data of Tank");
+        }
 
-        vTaskDelay(pdMS_TO_TICKS(1000));
+        ESP_LOGD(ModbusATG::TAG, "Reading ATG registers has done successfully");
+
+        // printInfo(data, setting, tankData);
+
+        vTaskDelay(pdMS_TO_TICKS(ATG_REQUEST_DURATION));
     }
 }
 
@@ -711,4 +705,29 @@ void goingDeepSleepTimerCB(TimerHandle_t xTimer)
 
         esp_deep_sleep_start();
     }
+}
+
+static void printInfo(const BeaconData_t &data, const Setting_t &setting, const TankData_t &tank)
+{
+    Serial.printf("====================Beacon========================\n");
+    Serial.printf("GPS STATUS\t\t\t= %c\n", data.gps.status);
+    Serial.printf("GPS LATITUDE\t\t\t= %f\n", data.gps.latitude);
+    Serial.printf("GPS LONGITUDE\t\t\t= %f\n", data.gps.longitude);
+    Serial.printf("Analog Input\t\t\t= %.2f V\n", data.voltageSupply);
+    Serial.printf("Hour Meter(seconds)\t\t= %ld s\n", data.hourMeter);
+    Serial.printf("Hour Meter + offset(seconds)\t= %ld s\n",
+                  calculateHMOffsetSeconds(data.hourMeter, setting.offsetHM));
+    Serial.printf("Hour Meter(hours)\t\t= %.3f Hrs\n", static_cast<float>(data.hourMeter / 3600.0f));
+    Serial.printf("Hour Meter + offset(hours)\t= %.3f Hrs\n", calculateHMOffset(data.hourMeter, setting.offsetHM));
+    Serial.printf("=====================Setting=======================\n");
+    Serial.printf("ID\t\t\t: %s\n", setting.ID.c_str());
+    Serial.printf("threshold HM\t\t: %.2f V\n", setting.thresholdHM);
+    Serial.printf("offsetAnalogInput\t: %f\n", setting.offsetAnalogInput);
+    Serial.printf("offsetHM \t\t: %.2f%%\n", setting.offsetHM);
+    Serial.printf("=====================Tank=======================\n");
+    Serial.printf("ID|Status\t\t\t: %d|%d\n", tank.ID, static_cast<uint8_t>(tank.status));
+    Serial.printf("Min Lvl|Max Lvl|Tank Vol\t: %.2f V|%.2f V|%.2f L\n", tank.minVoltageLevel, tank.maxVoltageLevel,
+                  tank.maxTankVolume);
+    Serial.printf("Raw Volt|Percent\t\t: %.3f mV|%.2f %%\n", tank.outputVoltage, tank.percentTankLevel);
+    Serial.printf("============================================\n");
 }

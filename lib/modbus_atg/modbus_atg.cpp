@@ -31,25 +31,22 @@ bool ModbusATG::begin(uint16_t baud, uint8_t pinRX, uint8_t pinTX)
     _pinRX     = pinRX;
     _pinTX     = pinTX;
 
-    _modbus->begin(baud, SERIAL_8N1, pinTX, pinTX, false);
+    _modbus->begin(baud, SERIAL_8N1, pinRX, pinTX, false);
 
     return true;
 }
 
 bool ModbusATG::readAllRegisters(const uint8_t slaveAddr, TankData_t &data)
 {
-    bool retVal = true;
-
-    const size_t   bufSize = 7;
-    uint16_t       buf[bufSize];
+    const size_t   bufSize      = 7;
+    uint16_t       buf[bufSize] = {0};
     const uint16_t registerAddr = static_cast<uint16_t>(FuelTankUnitReg_t::ID);
 
+    bool retVal = _modbus->readHoldingRegisters(slaveAddr, registerAddr, buf, bufSize, true);
     // Request to the holding registers
-    retVal = _modbus->readHoldingRegisters(slaveAddr, registerAddr, buf, bufSize, true);
     if (!retVal)
     {
-        ESP_LOGE(TAG, "Failed to read all holding registers");
-        retVal = false;
+        ESP_LOGE(TAG, "Failed to read all holding registers. [%d]", _modbus->getExceptionResponse());
         return retVal;
     }
 
@@ -63,16 +60,16 @@ bool ModbusATG::readAllRegisters(const uint8_t slaveAddr, TankData_t &data)
     data.outputVoltage = static_cast<float>(buf[2] / 100.0f);
 
     // get Level Tank
-    data.outputVoltage = static_cast<float>(buf[3] / 100.0f);
+    data.percentTankLevel = static_cast<float>(buf[3] / 100.0f);
 
     // get Minimum Level Voltage
-    data.outputVoltage = static_cast<float>(buf[3] / 100.0f);
+    data.minVoltageLevel = static_cast<float>(buf[4] / 100.0f);
 
     // get Maximum Level Voltage
-    data.outputVoltage = static_cast<float>(buf[4] / 100.0f);
+    data.maxVoltageLevel = static_cast<float>(buf[5] / 100.0f);
 
     // get Maximum Tank Volume
-    data.outputVoltage = static_cast<float>(buf[5] / 10.0f);
+    data.maxTankVolume = static_cast<float>(buf[6] / 10.0f);
 
     return retVal;
 }
@@ -119,7 +116,6 @@ bool ModbusATG::setIDDevice(const uint8_t slaveAddr, const uint8_t newID)
     if (!retVal)
     {
         ESP_LOGE(TAG, "Failed to write to ID Register");
-        retVal = false;
         return retVal;
     }
 
@@ -166,14 +162,13 @@ bool ModbusATG::setMaxTankVolume(const uint8_t slaveAddr, const float maxTankVol
 {
     bool retVal = true;
 
-    const uint16_t value        = static_cast<uint16_t>(maxTankVolume * 10);
+    const uint16_t value        = static_cast<uint16_t>(maxTankVolume * 100);
     const uint16_t registerAddr = static_cast<uint16_t>(FuelTankUnitReg_t::LEVEL_VOLTAGE_MAX);
 
     retVal = _modbus->writeSingleHoldingRegister(slaveAddr, registerAddr, value, true, TYPEDATA_UINT16_T);
     if (!retVal)
     {
         ESP_LOGE(TAG, "Failed to write to Tank Volume Register");
-        retVal = false;
         return retVal;
     }
 
@@ -182,10 +177,11 @@ bool ModbusATG::setMaxTankVolume(const uint8_t slaveAddr, const float maxTankVol
 
 bool ModbusATG::getIDDevice(const uint8_t slaveAddr, uint8_t &ID)
 {
-    bool           retVal  = true;
-    const size_t   bufSize = 1;
-    uint16_t       buf[bufSize];
-    const uint16_t registerAddr = static_cast<uint16_t>(FuelTankUnitReg_t::ID);
+    bool         retVal       = true;
+    const size_t bufSize      = 1;
+    uint16_t     buf[bufSize] = {0};
+    // const uint16_t registerAddr = static_cast<uint16_t>(FuelTankUnitReg_t::ID);
+    const uint16_t registerAddr = 0x1902;
 
     retVal = _modbus->readHoldingRegisters(slaveAddr, registerAddr, buf, bufSize, true);
     if (!retVal)
@@ -276,22 +272,23 @@ bool ModbusATG::getTankLevel(const uint8_t slaveAddr, float &levelTank)
 
 bool ModbusATG::getMinVoltageLevel(const uint8_t slaveAddr, float &minVoltageLevel)
 {
-    bool           retVal  = true;
-    const size_t   bufSize = 1;
-    uint16_t       buf[bufSize];
+    bool          retVal  = true;
+    const uint8_t bufSize = 1;
+    // uint16_t       buf[bufSize];
+    uint16_t       buf;
     const uint16_t registerAddr = static_cast<uint16_t>(FuelTankUnitReg_t::LEVEL_VOLTAGE_MIN);
 
-    retVal = _modbus->readHoldingRegisters(slaveAddr, registerAddr, buf, bufSize, true);
+    retVal = _modbus->readHoldingRegisters(slaveAddr, registerAddr, &buf, bufSize, true);
     if (!retVal)
     {
         ESP_LOGE(TAG, "Failed to read to minimum voltage level Register");
-        retVal = false;
+        ESP_LOGE(TAG, "Exception: %d", _modbus->getExceptionResponse());
         return retVal;
     }
 
-    minVoltageLevel = static_cast<float>(buf[0] / 100.0f);
+    minVoltageLevel = static_cast<float>(buf / 100.0f);
 
-    ESP_LOGD(TAG, "minVoltageLevel : %.2f", minVoltageLevel);
+    ESP_LOGE(TAG, "minVoltageLevel : %.2f", minVoltageLevel);
 
     return retVal;
 }
@@ -338,4 +335,16 @@ bool ModbusATG::getMaxTankVolume(const uint8_t slaveAddr, float &maxTankVolume)
     ESP_LOGD(TAG, "minVoltageLevel : %.2f", maxTankVolume);
 
     return retVal;
+}
+
+void ModbusATG::debugOutput()
+{
+    Serial.println("[DEBUG outside]");
+    while (_serial->available())
+    {
+
+        char c = _serial->read();
+        Serial.printf("%02x ", c);
+    }
+    Serial.println();
 }
