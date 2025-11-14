@@ -56,8 +56,11 @@ void BLE::startServerOTA()
     _pAdvertisingOTA->start();
 }
 
-void BLE::setCustomBeacon(BeaconData_t &data, Setting_t &setting)
+void BLE::setCustomBeacon(const BeaconData_t &data, const Setting_t &setting, const TankData_t *tank)
 {
+    bool         isTankDataExist = (tank != nullptr);
+    const size_t beaconDataSize  = isTankDataExist ? MAX_BEACON_DATA_SIZE : 19;
+
     // atur data advertising
     BLEAdvertisementData oAdvertisementData = BLEAdvertisementData();
     BLEAdvertisementData oScanResponseData  = BLEAdvertisementData();
@@ -79,7 +82,8 @@ void BLE::setCustomBeacon(BeaconData_t &data, Setting_t &setting)
     // int16_t analogInputFixedPoint = (int16_t)(analogInputVal * 256);
 
     /* PROCESSING DATA SEBELUM DIKIRIM MELALUI BLE */
-    char beacon_data[19];
+    char *beacon_data = new char[beaconDataSize];
+    memset(beacon_data, 0, beaconDataSize);
 
     // Processing ID
     ListID_t id;
@@ -117,10 +121,19 @@ void BLE::setCustomBeacon(BeaconData_t &data, Setting_t &setting)
     beacon_data[17] = ((offsettedSecondsHM & 0xFF00) >> 8);       //
     beacon_data[18] = (offsettedSecondsHM & 0xFF);                //
 
-    oScanResponseData.setServiceData(BLEUUID(beaconUUID), std::string(beacon_data, sizeof(beacon_data)));
+    if (isTankDataExist)
+    {
+        uint8_t outputVoltageInMV = tank->outputVoltage * 10;
+        beacon_data[19]           = outputVoltageInMV; // WARN: only able to append one data
+    }
+
+    oScanResponseData.setServiceData(BLEUUID(beaconUUID), std::string(beacon_data, beaconDataSize));
+
     oAdvertisementData.setName(_BT_SSID.c_str());
     _pAdvertising->setAdvertisementData(oAdvertisementData);
     _pAdvertising->setScanResponseData(oScanResponseData);
+
+    delete[] beacon_data;
 }
 
 void BLE::advertiseBeacon()

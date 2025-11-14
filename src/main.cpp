@@ -203,7 +203,8 @@ static void sendBLEData(void *pvParam)
 {
     while (1)
     {
-        ble->setCustomBeacon(data, setting);
+        ble->setCustomBeacon(data, setting, &tankData);
+        // ble->setCustomBeacon(data, setting, nullptr);
 
         ble->advertiseBeacon();
 

@@ -3,6 +3,7 @@
 #include "common.h"
 #include "hour_meter_manager.h"
 #include "id_management.h"
+#include "modbus_atg.h"
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <AsyncJson.h>
@@ -18,10 +19,12 @@
 #define SERVICE_DIS_UUID     "180A"
 #define CHAR_DIS_FW_VER_UUID "2A26"
 #define OTA_WIFI_DURATION    (10 * 60 * 1000) // 10 minutes
+#define MAX_BEACON_DATA_SIZE 20
 
 extern BeaconData_t data;
 extern Setting_t    setting;
 extern HourMeter   *hm;
+extern TankData_t   tankData;
 
 class BLE
 {
@@ -61,7 +64,7 @@ class BLE
     };
 
     void        begin();
-    void        setCustomBeacon(BeaconData_t &data, Setting_t &setting);
+    void        setCustomBeacon(const BeaconData_t &data, const Setting_t &setting, const TankData_t *tank);
     void        advertiseBeacon();
     void        startServerOTA();
     void        startHTTPServer();
