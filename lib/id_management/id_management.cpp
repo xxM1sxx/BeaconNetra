@@ -1,5 +1,5 @@
-#include <Arduino.h>
 #include "common.h"
+#include <Arduino.h>
 
 ListID_t stringToEnum(const std::string &id)
 {
@@ -71,6 +71,14 @@ ListID_t stringToEnum(const std::string &id)
         return XTH;
     if (id == "XTL")
         return XTL;
+    if (id == "LV")
+        return LV;
+    if (id == "XLV")
+        return XLV;
+    if (id == "WS")
+        return WS;
+    if (id == "XWS")
+        return XWS;
     return UNKNOWN; // Fallback for unknown strings
 }
 

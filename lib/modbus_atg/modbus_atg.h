@@ -33,7 +33,7 @@ struct TankData_t
 {
     uint8_t  ID;
     Status_t status;
-    float    outputVoltage;
+    uint16_t outputVoltage;
     float    percentTankLevel;
     float    minVoltageLevel;
     float    maxVoltageLevel;
@@ -46,7 +46,7 @@ class ModbusATG
     ModbusATG(HardwareSerial *serial);
     ~ModbusATG();
 
-    bool begin(uint16_t baud, uint8_t pinRX, uint8_t pinTX);
+    bool begin(uint32_t baud, uint8_t pinRX, uint8_t pinTX);
     bool readAllRegisters(const uint8_t slaveAddr, TankData_t &data);
     bool writeAllRegisters(const uint8_t slaveAddr, TankData_t &data);
     bool setIDDevice(const uint8_t slaveAddr, const uint8_t newID);
@@ -67,7 +67,7 @@ class ModbusATG
   private:
     HardwareSerial  *_serial;
     ModbusRTUMaster *_modbus;
-    uint16_t         _baudRates;
+    uint32_t         _baudRates;
     uint8_t          _pinRX;
     uint8_t          _pinTX;
 };

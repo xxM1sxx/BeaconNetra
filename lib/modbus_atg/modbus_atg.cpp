@@ -12,7 +12,7 @@ ModbusATG::~ModbusATG()
     delete _modbus;
 }
 
-bool ModbusATG::begin(uint16_t baud, uint8_t pinRX, uint8_t pinTX)
+bool ModbusATG::begin(uint32_t baud, uint8_t pinRX, uint8_t pinTX)
 {
     if (_serial == nullptr)
     {
@@ -57,7 +57,7 @@ bool ModbusATG::readAllRegisters(const uint8_t slaveAddr, TankData_t &data)
     data.status = static_cast<Status_t>(buf[1]);
 
     // get Output Voltage
-    data.outputVoltage = static_cast<float>(buf[2] / 100.0f);
+    data.outputVoltage = static_cast<uint16_t>(buf[2]);
 
     // get Level Tank
     data.percentTankLevel = static_cast<float>(buf[3] / 100.0f);

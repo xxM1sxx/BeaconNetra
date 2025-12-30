@@ -69,6 +69,10 @@ enum ListID_t
     XPP,
     XTH,
     XTL,
+    LV,
+    XLV,
+    WS,
+    XWS,
     UNKNOWN,
 };
 

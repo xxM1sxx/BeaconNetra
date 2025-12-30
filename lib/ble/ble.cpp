@@ -123,8 +123,12 @@ void BLE::setCustomBeacon(const BeaconData_t &data, const Setting_t &setting, co
 
     if (isTankDataExist)
     {
-        uint8_t outputVoltageInMV = tank->outputVoltage * 10;
-        beacon_data[19]           = outputVoltageInMV; // WARN: only able to append one data
+        uint16_t outputVoltageInMV = tank->outputVoltage;
+        beacon_data[5]             = 1; // make this byte as an identifier among existing beacon
+
+        // insert Tank ATG information
+        beacon_data[3] = ((outputVoltageInMV & 0xFF00) >> 8);
+        beacon_data[4] = (outputVoltageInMV & 0xFF);
     }
 
     oScanResponseData.setServiceData(BLEUUID(beaconUUID), std::string(beacon_data, beaconDataSize));

@@ -272,7 +272,6 @@ static void requestATGInfo(void *pvParam)
         ESP_LOGD(ModbusATG::TAG, "Reading ATG registers has done successfully");
 
         // printInfo(data, setting, tankData);
-
         vTaskDelay(pdMS_TO_TICKS(ATG_REQUEST_DURATION));
     }
 }
@@ -729,6 +728,6 @@ static void printInfo(const BeaconData_t &data, const Setting_t &setting, const 
     Serial.printf("ID|Status\t\t\t: %d|%d\n", tank.ID, static_cast<uint8_t>(tank.status));
     Serial.printf("Min Lvl|Max Lvl|Tank Vol\t: %.2f V|%.2f V|%.2f L\n", tank.minVoltageLevel, tank.maxVoltageLevel,
                   tank.maxTankVolume);
-    Serial.printf("Raw Volt|Percent\t\t: %.3f mV|%.2f %%\n", tank.outputVoltage, tank.percentTankLevel);
+    Serial.printf("Raw Volt|Percent\t\t: %ld|%.2f %%\n", tank.outputVoltage, tank.percentTankLevel);
     Serial.printf("============================================\n");
 }
