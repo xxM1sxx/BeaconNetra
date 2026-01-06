@@ -4,7 +4,7 @@
 
 #define PIN_RX_RS485         18
 #define PIN_TX_RS485         19
-#define FIRMWARE_VERSION     "v1.7.1-250905"
+#define FIRMWARE_VERSION     "FuMS->v1.0.0; based on LMS->v1.7.1-250905"
 #define DEEP_SLEEP_CYCLE_STR "0.5 minute ON, 1.5 minute OFF"
 
 #define STALL_TOLERANCE_MS 5000 // 5 seconds tolerance
