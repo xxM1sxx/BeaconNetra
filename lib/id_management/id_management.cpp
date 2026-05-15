@@ -79,6 +79,8 @@ ListID_t stringToEnum(const std::string &id)
         return WS;
     if (id == "XWS")
         return XWS;
+    if (id == "H")
+        return H;
     return UNKNOWN; // Fallback for unknown strings
 }
 

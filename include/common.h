@@ -73,6 +73,7 @@ enum ListID_t
     XLV,
     WS,
     XWS,
+    H,
     UNKNOWN,
 };
 
