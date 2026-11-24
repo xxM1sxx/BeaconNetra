@@ -1,6 +1,8 @@
 #include "ble.h"
+#include <mbedtls/md5.h>
 
 bool                BLE::isConnectedToWiFi = false;
+bool                BLE::isAuthenticated   = false;
 extern BeaconData_t data;
 extern Setting_t    setting;
 
@@ -8,7 +10,7 @@ extern Setting_t    setting;
 BLE::BLE()
 {
     _WIFI_SSID = "WIFI_" + setting.ID; // name + wifi
-    _WIFIpwd   = "qimtronics_ota81";
+    _WIFIpwd   = "netra_ota360";
 
     _BT_SSID = "BT_" + setting.ID;
 
@@ -20,6 +22,7 @@ void BLE::begin()
 {
     BLEDevice::init(_BT_SSID.c_str());
     BLEDevice::setPower(ESP_PWR_LVL_N12);
+    NimBLEDevice::setMTU(64);
     _pAdvertising = BLEDevice::getAdvertising();
 }
 
@@ -44,15 +47,39 @@ void BLE::startServerOTA()
     // create characteristic
     _pCharacteristic =
         _pOTAService->createCharacteristic(CHAR_OTA_UUID, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE);
-    _pCharacteristic->setCallbacks(new OTACharacteristicCallback());
+    _pCharacteristic->setCallbacks(new OTACharacteristicCallback(this));
 
     // start the service
     _pOTAService->start();
+
+    // NOTE: Hour Meter Update Service
+    _pHMService = _pServer->createService(SERVICE_HM_UPDATE_UUID);
+    _pHMUpdateChar =
+        _pHMService->createCharacteristic(CHAR_HM_UPDATE_UUID, NIMBLE_PROPERTY::WRITE);
+    _pHMUpdateChar->setCallbacks(new HMUpdateCharacteristicCallback());
+    _pHMService->start();
+
+    // NOTE: WiFi Control Service
+    _pWiFiCtrlService = _pServer->createService(SERVICE_WIFI_CTRL_UUID);
+    _pWiFiCtrlChar =
+        _pWiFiCtrlService->createCharacteristic(CHAR_WIFI_CTRL_UUID, NIMBLE_PROPERTY::WRITE);
+    _pWiFiCtrlChar->setCallbacks(new WiFiControlCallback(this));
+    _pWiFiCtrlService->start();
+
+    // NOTE: HM Control Service (for dev: start/stop HM counting via BLE)
+    _pHMCtrlService = _pServer->createService(SERVICE_HM_CTRL_UUID);
+    _pHMCtrlChar =
+        _pHMCtrlService->createCharacteristic(CHAR_HM_CTRL_UUID, NIMBLE_PROPERTY::WRITE);
+    _pHMCtrlChar->setCallbacks(new HMControlCallback());
+    _pHMCtrlService->start();
 
     // Start Advertising
     _pAdvertisingOTA = NimBLEDevice::getAdvertising();
     _pAdvertisingOTA->addServiceUUID(SERVICE_OTA_UUID);
     _pAdvertisingOTA->addServiceUUID(SERVICE_DIS_UUID);
+    _pAdvertisingOTA->addServiceUUID(SERVICE_HM_UPDATE_UUID);
+    _pAdvertisingOTA->addServiceUUID(SERVICE_WIFI_CTRL_UUID);
+    _pAdvertisingOTA->addServiceUUID(SERVICE_HM_CTRL_UUID);
     _pAdvertisingOTA->start();
 }
 
@@ -142,7 +169,9 @@ void BLE::setCustomBeacon(const BeaconData_t &data, const Setting_t &setting, co
 
 void BLE::advertiseBeacon()
 {
-    _pAdvertising->start();
+    // ponytail: start once, don't restart every cycle — NimBLE handles it
+    if (!_pAdvertising->isAdvertising())
+        _pAdvertising->start();
 }
 
 void BLE::startWiFi()
@@ -158,6 +187,22 @@ void BLE::startWiFi()
 
     Serial.printf("WiFi AP is Started! SSID: %s, IP: ", _WIFI_SSID.c_str());
     Serial.println(_wifi->softAPIP());
+}
+
+void BLE::stopWiFi()
+{
+    if (_wifi)
+    {
+        _wifi->disconnect(true);
+        vTaskDelay(pdMS_TO_TICKS(500));
+
+        _wifi->mode(WIFI_OFF);
+        vTaskDelay(pdMS_TO_TICKS(500));
+
+        delete _wifi;
+        _wifi = nullptr;
+        Serial.println("[WiFi] WiFi AP stopped");
+    }
 }
 
 void BLE::startHTTPServer()
@@ -348,6 +393,66 @@ void BLE::restartTask(void *param)
 {
     vTaskDelay(pdMS_TO_TICKS(3000)); // Give enough time for the response to send
     ESP.restart();
+}
+
+void BLE::resetAuth(uint16_t conn_handle)
+{
+    BLE::isAuthenticated = false;
+    _authStartTime        = 0;
+    _authConnHandle       = conn_handle;
+    memset(_currentChallenge, 0, sizeof(_currentChallenge));
+    _authConnHandle = 0;
+    Serial.println("[AUTH] Auth state reset");
+}
+
+void BLE::onAuthRequest()
+{
+    for (int i = 0; i < 8; i++)
+        _currentChallenge[i] = (uint8_t)(esp_random() & 0xFF);
+
+    _authStartTime = millis();
+
+    uint8_t challengePacket[9];
+    challengePacket[0] = 0x17; // AUTH_CHALLENGE
+    memcpy(challengePacket + 1, _currentChallenge, 8);
+    _pCharacteristic->setValue(challengePacket, 9);
+
+    Serial.printf("[AUTH] Challenge sent (conn %u)\n", _authConnHandle);
+}
+
+bool BLE::onAuthResponse(uint8_t *response, uint8_t len)
+{
+    if (len != 16) return false;
+
+    uint8_t inputLen = 8 + strlen(SHARED_SECRET);
+    uint8_t input[inputLen];
+    memcpy(input, _currentChallenge, 8);
+    memcpy(input + 8, SHARED_SECRET, strlen(SHARED_SECRET));
+
+    uint8_t expectedHash[16];
+    mbedtls_md5(input, inputLen, expectedHash);
+
+    if (memcmp(response, expectedHash, 16) == 0)
+    {
+        BLE::isAuthenticated = true;
+        Serial.println("[AUTH] Authentication SUCCESS");
+        return true;
+    }
+
+    Serial.println("[AUTH] Authentication FAILED - hash mismatch");
+    return false;
+}
+
+void BLE::checkAuthTimeout()
+{
+    if (BLE::isAuthenticated) return;
+    if (_authStartTime == 0) return;
+    if ((millis() - _authStartTime) < AUTH_TIMEOUT_MS) return;
+
+    Serial.println("[AUTH] Timeout (10s) - disconnecting");
+    if (_pServer)
+        _pServer->disconnect(_authConnHandle);
+    resetAuth();
 }
 
 /* PRIVATE METHOD */

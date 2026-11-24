@@ -61,6 +61,7 @@ float         scaleAdjusted;
 uint16_t      glitchCounter = 0;
 SystemState_t currentState;
 float         hourMeterInHours;
+bool          hmBLETriggered = false;
 
 void setup()
 {
@@ -130,6 +131,7 @@ void setup()
     /* BLE INIT */
     ble = new BLE();
     ble->begin();
+    ble->startServerOTA();
     Serial.println("[BLE] Inisialisasi BLE");
 
     /* ENABLING ESP32 DEEP SLEEP BY TIMER */
@@ -336,15 +338,26 @@ static void countingHourMeter(void *pvParam)
 
     while (1)
     {
-        if (data.voltageSupply >= setting.thresholdHM)
+        if ((data.voltageSupply >= setting.thresholdHM) || hmBLETriggered)
         {
             if (!isCounting)
             {
                 // Initialize startTime when counting begins
                 startTime = rtc->now();
-                Serial.printf("[HM] Voltage above threshold. Counting started at "
-                              "%02d:%02d:%02d\n",
-                              startTime.hour(), startTime.minute(), startTime.second());
+
+                if (hmBLETriggered)
+                {
+                    Serial.printf("[HM] BLE trigger. Counting started at "
+                                  "%02d:%02d:%02d\n",
+                                  startTime.hour(), startTime.minute(), startTime.second());
+                }
+                else
+                {
+                    Serial.printf("[HM] Voltage above threshold. Counting started at "
+                                  "%02d:%02d:%02d\n",
+                                  startTime.hour(), startTime.minute(), startTime.second());
+                }
+
                 isCounting = true;
 
                 // NOTE: add 10s upfront to normalize late trigger on HM
@@ -494,8 +507,12 @@ static void checkDeepSleepTask(void *param)
 
     while (1)
     {
-        // if (xSemaphoreTake(dataReadySemaphore, portMAX_DELAY) == pdTRUE)
-        // {
+        if (BLE::isAuthenticated)
+        {
+            vTaskDelay(pdMS_TO_TICKS(1000));
+            continue;
+        }
+
         if (data.voltageSupply > LOWEST_ANALOG_THRESHOLD)
         {
             // Serial.println("Adapter is plugged in. Keeping system running.");
@@ -582,8 +599,6 @@ static void OTABLEUpdate(void *pvParam)
     TimerHandle_t wifiTimer;
     wifiTimer = xTimerCreate("WiFi Timeout", pdMS_TO_TICKS(OTA_WIFI_DURATION), pdFALSE, NULL, wifiTimeoutCallback);
 
-    ble->startServerOTA();
-
     BLE::OTAState state        = BLE::IDLE;
     bool          wasConnected = false; // Track previous connection state
 
@@ -624,6 +639,7 @@ static void OTABLEUpdate(void *pvParam)
             break;
         }
 
+        ble->checkAuthTimeout();
         vTaskDelay(pdMS_TO_TICKS(500)); // Prevent busy looping
     }
 }

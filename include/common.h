@@ -82,3 +82,5 @@ enum SystemState_t
     NORMAL = 0,
     ON_BATTERY,
 };
+
+extern bool hmBLETriggered;
